@@ -81,7 +81,7 @@ class PkgComponent(ctypes.Structure):
                 ("file_path", ctypes.c_char_p),
                 ("component_addr", ctypes.c_char_p),
                 ("version", ctypes.c_char_p),
-                ("size", ctypes.c_int),
+                ("size", ctypes.c_uint64),
                 ("id", ctypes.c_int),
                 ("original_size", ctypes.c_int),
                 ("res_type", ctypes.c_ubyte),

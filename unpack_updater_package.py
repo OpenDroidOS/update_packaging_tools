@@ -67,6 +67,7 @@ class UnpackPackage(object):
         self.count = 0
         self.component_offset = 0
         self.save_path = None
+        self.file_version = 1
 
         if OPTIONS_MANAGER.not_l2:
             self.compinfo_size = UPGRADE_COMPINFO_SIZE
@@ -91,6 +92,8 @@ class UnpackPackage(object):
 
     def parse_package_file(self, package_file):
         try:
+            package_file.seek(8)
+            self.file_version = struct.unpack('<I', package_file.read(4))[0]
             package_file.seek(COMPINFO_LEN_OFFSET)
             compinfo_len_buffer = package_file.read(COMPINFO_LEN_SIZE)
             compinfo_len = struct.unpack(COMPINFO_LEN_FMT, compinfo_len_buffer)
@@ -137,8 +140,9 @@ class UnpackPackage(object):
             component_type = struct.unpack(COMPONENT_TYPE_FMT, component_type_buffer)
 
             package_file.seek(self.size_offset)
-            component_size_buffer = package_file.read(COMPONENT_SIZE_SIZE)
-            component_size = struct.unpack(COMPONENT_SIZE_FMT, component_size_buffer)
+            size_format = '<Q' if self.file_version >= 3 else COMPONENT_SIZE_FMT
+            component_size_buffer = package_file.read(struct.calcsize(size_format))
+            component_size = struct.unpack(size_format, component_size_buffer)
         except (struct.error, IOError):
             UPDATE_LOGGER.print_log(
                 "parse component failed!", UPDATE_LOGGER.ERROR_LOG)
@@ -172,8 +176,14 @@ class UnpackPackage(object):
 
         image_fd = os.open(image_file_path, os.O_RDWR | os.O_CREAT | os.O_TRUNC, 0o755)
         with os.fdopen(image_fd, "wb") as image_file:
-            image_buffer = package_file.read(component_size)
-            image_file.write(image_buffer)
+            remaining = component_size
+            while remaining:
+                image_buffer = package_file.read(min(1024 * 1024, remaining))
+                if not image_buffer:
+                    UPDATE_LOGGER.print_log("Truncated component payload", UPDATE_LOGGER.ERROR_LOG)
+                    return False
+                image_file.write(image_buffer)
+                remaining -= len(image_buffer)
 
         self.addr_offset += self.compinfo_size
         self.type_offset += self.compinfo_size

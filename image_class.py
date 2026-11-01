@@ -57,6 +57,21 @@ class FullUpdateImage:
         full_image_file_obj_list = []
         full_image_content_len_list = []
         for idx, each_name in enumerate(self.full_img_list):
+            if not OPTIONS_MANAGER.stream_update:
+                image = None
+                try:
+                    image = open(self.full_image_path_list[idx], 'rb')
+                    image_size = os.fstat(image.fileno()).st_size
+                except OSError:
+                    if image is not None:
+                        image.close()
+                    for opened in full_image_file_obj_list:
+                        opened.close()
+                    UPDATE_LOGGER.print_log("Cannot open full image input", UPDATE_LOGGER.ERROR_LOG)
+                    return False, False
+                full_image_content_len_list.append(image_size)
+                full_image_file_obj_list.append(image)
+                continue
             full_image_content = self.get_full_image_content(
                 self.full_image_path_list[idx])
             img_name = self.full_img_name_list[idx][:-4]

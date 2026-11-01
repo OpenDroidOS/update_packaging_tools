@@ -57,6 +57,8 @@ HASH_TLV_FMT = "<HI"
 HASH_INFO_FMT = "<3HI"
 HASH_DATA_HEADER_FMT = "<32sHI"
 HASH_DATA_ADDR_FMT = "<2I"
+HASH_DATA_HEADER_FMT_V3 = "<32sHQ"
+HASH_DATA_ADDR_FMT_V3 = "<2Q"
 
 
 class CreateHash(object):
@@ -64,7 +66,7 @@ class CreateHash(object):
     Create the component hash data
     """
 
-    def __init__(self, hash_type, count):
+    def __init__(self, hash_type, count, file_version=2):
         self.hashinfo_tlv_type = 0x06
         self.hashdata_tlv_type = 0x07
         self.sign_tlv_type = 0x08
@@ -76,6 +78,10 @@ class CreateHash(object):
         self.hashdata = bytes()
         self.signdata = bytes()
         self.hashdata_list = []
+        self.header_fmt = HASH_DATA_HEADER_FMT_V3 if file_version >= 3 else HASH_DATA_HEADER_FMT
+        self.address_fmt = HASH_DATA_ADDR_FMT_V3 if file_version >= 3 else HASH_DATA_ADDR_FMT
+        self.header_size = struct.calcsize(self.header_fmt)
+        self.address_size = struct.calcsize(self.address_fmt)
 
     def write_hashinfo(self):
         try:
@@ -132,7 +138,7 @@ class CreateHash(object):
                 UPDATE_LOGGER.print_log(
                     "calc component hash component name:%s %d" % (component_name, len(component_name)))
                 total_block = block_num + 1 if component_len % HASH_BLOCK_SIZE > 0 else block_num
-                self.hashdata += struct.pack(HASH_DATA_HEADER_FMT, component_name.encode(),
+                self.hashdata += struct.pack(self.header_fmt, component_name.encode(),
                     total_block, component_len)
                 UPDATE_LOGGER.print_log("calc component hash  block_num:%d" % total_block)
                 write_len = 0
@@ -140,12 +146,12 @@ class CreateHash(object):
                     component_file.seek(write_len)
                     component_data = component_file.read(HASH_BLOCK_SIZE)
                     write_len += HASH_BLOCK_SIZE
-                    self.hashdata += struct.pack(HASH_DATA_ADDR_FMT, (i * HASH_BLOCK_SIZE if i != 0 else 0),
+                    self.hashdata += struct.pack(self.address_fmt, (i * HASH_BLOCK_SIZE if i != 0 else 0),
                         write_len - 1) + self.calculate_hash_data(component_data)
                 if component_len - write_len > 0 :
                     component_file.seek(write_len)
                     component_data = component_file.read(component_len - write_len)
-                    self.hashdata += struct.pack(HASH_DATA_ADDR_FMT, (write_len if write_len != 0 else 0),
+                    self.hashdata += struct.pack(self.address_fmt, (write_len if write_len != 0 else 0),
                         component_len - 1) + self.calculate_hash_data(component_data)
         except (struct.error, IOError):
             return False
@@ -170,17 +176,17 @@ class CreateHash(object):
         offset = 0
         try:
             for i in range(0, self.component_num):
-                img_name, hash_num, img_size = struct.unpack(HASH_DATA_HEADER_FMT,
-                    data[offset: HASH_DATA_HEADER_SIZE + offset])
+                img_name, hash_num, img_size = struct.unpack(self.header_fmt,
+                    data[offset: self.header_size + offset])
                 UPDATE_LOGGER.print_log("parese hashinfo complete, %s %d %d" % (img_name,
                     hash_num, img_size))
-                offset += HASH_DATA_HEADER_SIZE
+                offset += self.header_size
                 self.hashdata_list.append((img_name.decode(), hash_num, img_size))
                 for j in range(0, hash_num):
-                    hash_data_star, hash_data_end = struct.unpack(HASH_DATA_ADDR_FMT,
-                        data[offset: HASH_DATA_ADDR_SIZE + offset])
-                    hash_data = data[HASH_DATA_ADDR_SIZE + offset:HASH_DATA_ADDR_SIZE + self.hash_digest_size + offset]
-                    offset += (HASH_DATA_ADDR_SIZE + self.hash_digest_size)
+                    hash_data_star, hash_data_end = struct.unpack(self.address_fmt,
+                        data[offset: self.address_size + offset])
+                    hash_data = data[self.address_size + offset:self.address_size + self.hash_digest_size + offset]
+                    offset += (self.address_size + self.hash_digest_size)
                     self.hashdata_list.append((hash_data_star, hash_data_end, hash_data))
         except struct.error:
             return False

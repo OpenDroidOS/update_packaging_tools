@@ -69,6 +69,8 @@ UPGRADE_PKG_HEADER_FMT = "2I64s64s"
 UPGRADE_PKG_TIME_FMT = "16s16s"
 COMPONENT_INFO_FMT = "H3B"
 COMPONENT_SIZE_FMT = "iI"
+COMPONENT_SIZE_FMT_V3 = "<Q"
+COPY_BLOCK_SIZE = 1024 * 1024
 
 
 class CreatePackage(object):
@@ -198,8 +200,11 @@ class CreatePackage(object):
             self.compinfo_offset += COMPONENT_VERSION_SIZE
 
             package_file.seek(self.compinfo_offset)
-            component_size = struct.pack(
-                COMPONENT_SIZE_FMT, component.size, component.original_size)
+            if self.head_list.update_file_version >= 3:
+                component_size = struct.pack(COMPONENT_SIZE_FMT_V3, component.size)
+            else:
+                component_size = struct.pack(
+                    COMPONENT_SIZE_FMT, component.size, component.original_size)
             package_file.write(component_size)
             self.compinfo_offset += COMPONENT_SIZE_FMT_SIZE
 
@@ -215,10 +220,17 @@ class CreatePackage(object):
             % self.component_offset)
         try:
             with open(component.file_path, "rb") as component_file:
-                component_data = component_file.read()
                 package_file.seek(self.component_offset)
-                package_file.write(component_data)
-                component_len = len(component_data)
+                component_len = 0
+                while True:
+                    component_data = component_file.read(COPY_BLOCK_SIZE)
+                    if not component_data:
+                        break
+                    package_file.write(component_data)
+                    component_len += len(component_data)
+                if component_len != component.size:
+                    UPDATE_LOGGER.print_log("Component size changed while packaging", UPDATE_LOGGER.ERROR_LOG)
+                    return False
                 self.component_offset += component_len
         except IOError:
             return False
@@ -429,7 +441,8 @@ class CreatePackage(object):
             UPDATE_LOGGER.print_log("verify param failed!", UPDATE_LOGGER.ERROR_LOG)
             return False
 
-        hash_check_data = CreateHash(HashType.SHA256, self.head_list.entry_count)
+        hash_check_data = CreateHash(HashType.SHA256, self.head_list.entry_count,
+                                     file_version=self.head_list.update_file_version)
         hash_check_data.write_hashinfo()
         UPDATE_LOGGER.print_log("self.save_path: %s"
                         % self.save_path, UPDATE_LOGGER.INFO_LOG)
